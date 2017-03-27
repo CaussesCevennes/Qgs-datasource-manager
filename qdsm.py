@@ -13,7 +13,7 @@ INFOS = {
 }
 
 
-import os
+import os, sys
 from xml.etree import ElementTree as etree
 
 
@@ -23,10 +23,12 @@ VALID_EXT = [
 '.shp', '.tab', '.dxf',
 '.osm', '.kml', '.gml', '.gpx', '.geojson',
 '.tif', '.tiff', '.jpg', '.jpeg', '.png', '.jp2', '.ecw', '.vrt',
-'.gpkg', '.sqlite', '.db', '.mbtiles'
+'.gpkg', '.sqlite', '.db', '.mbtiles',
 '.csv', '.txt', '.xls', '.xlsx', '.ods',
 '.pdf', '.svg'
 ]
+
+VALID_EXT = VALID_EXT + [ext.upper() for ext in VALID_EXT]
 
 
 class QgsProjects():
@@ -109,6 +111,25 @@ class QgsProjects():
 					srcProps = [str(getattr(src, attr, '')) for attr in srcAttr]
 					f.write(sep.join(prjProps+srcProps) + '\n')
 
+	@property
+	def nSource(self):
+		return len([src for prj in self.projects for src in prj])
+
+	@property
+	def nLayerSource(self):
+		return len([src for prj in self.projects for src in prj if src.composer==False])
+
+	@property
+	def nComposerSource(self):
+		return len([src for prj in self.projects for src in prj if src.composer==True])
+
+	@property
+	def nBrokenSource(self):
+		return len([src for prj in self.projects for src in prj \
+		if src.exists==False \
+		and getattr(src, 'provider', None) in ['gdal', 'ogr'] \
+		and os.path.splitext(src.path)[1] in VALID_EXT])
+
 	def getUniqueSources(self):
 		'''return unique sources'''
 		return QgsSources(self)
@@ -155,9 +176,37 @@ class QgsSources():
 			ext = os.path.splitext(src.path)[1]
 			if ext in d:
 				d[ext] += 1
-			else:
+			elif ext in VALID_EXT:
 				d[ext] = 1
 		return d
+
+	def getProvList(self):
+		'''return a dict of founded provider as keys and the number of occurence as values'''
+		d = {}
+		for src in self.sources:
+			if src.composer == False:
+				prov = src.provider
+				if prov in d:
+					d[prov] += 1
+				else:
+					d[prov] = 1
+		return d
+
+	@property
+	def nLayerSource(self):
+		return len([src for src in self.sources if src.composer==False])
+
+	@property
+	def nComposerSource(self):
+		return len([src for src in self.sources if src.composer==True])
+
+	@property
+	def nBrokenSource(self):
+		return len([src for src in self.sources  \
+		if src.exists==False \
+		and getattr(src, 'provider', None) in ['gdal', 'ogr'] \
+		and os.path.splitext(src.path)[1] in VALID_EXT])
+
 
 
 class QgsProject():
@@ -182,19 +231,30 @@ class QgsProject():
 	def _backslash2slash(self, path):
 		'''convert backslash to slash to make the path usuable both on dos and unix'''
 		return path.replace('\\', '/')
+	
+	def _isAbsPath(self, path):
+		if path.startswith('.'):
+			return False
+		if path.startswith('/') or path[1] == ':':
+			return True
+		else:
+			return False
 
 	def _pathToAbs(self, path):
 		'''Normalize a source path as absolute link'''
 		#relative path to absolute
-		if path.startswith('.'):
+		if not self._isAbsPath(path):
 			path = os.path.normpath(os.path.dirname(self.path) + os.sep + path)
 		return self._backslash2slash(path)
 
 	def _pathToRel(self, path):
 		'''absolute path to relative path'''
-		if not path.startswith('.'):
+		if self._isAbsPath(path):
 			try:
 				path = os.path.relpath(path, os.path.dirname(self.path))
+				#Force explicit ref to current folder if needed
+				if not path.startswith('.'):
+					path = './' + path
 			except ValueError:
 				#happen on dos when the 2 submited path do not share the same drive letter
 				pass
@@ -300,7 +360,7 @@ class QgsProject():
 				try:
 					srcProps['provider'] = elem.find('provider').text
 				except:
-					print('pass layer node with no provider')
+					if verbose: print('pass layer node with no provider')
 					continue
 
 				#Get datasource url
@@ -308,7 +368,7 @@ class QgsProject():
 					srcPath = elem.find('datasource').text
 					srcExt = None #do not except it easily
 				except:
-					print('pass layer node with no datasource')
+					if verbose: print('pass layer node with no datasource')
 					return
 
 				#Get some others properties
