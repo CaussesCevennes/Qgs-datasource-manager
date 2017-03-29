@@ -408,7 +408,7 @@ class QgsProject():
 					if writeRelPath:
 						srcPath = self._pathToRel(srcPath)
 					#edit tree
-					if srcProps['subset'] is None:
+					if srcProps['subset'] == '':
 						elem.find('datasource').text = srcPath
 					else:
 						elem.find('datasource').text = srcPath + '|' + srcProps['subset']
