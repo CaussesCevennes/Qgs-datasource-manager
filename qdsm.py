@@ -134,6 +134,11 @@ class QgsProjects():
 		'''return unique sources'''
 		return QgsSources(self)
 
+	def findSource(self, path):
+		'''return paths of qgs projects that contains the input source path'''
+		path = path.replace('\\', '/')
+		return [prj.path for prj in self.projects if path in [src.path for src in prj.sources]]
+
 
 class QgsSources():
 	'''A container of unique source list'''
